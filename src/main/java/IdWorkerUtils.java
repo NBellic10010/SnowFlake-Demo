@@ -1,3 +1,7 @@
+import org.apache.commons.lang3.RandomUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.SystemUtils;
+
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -30,20 +34,76 @@ public class IdWorkerUtils {
         }
     }
 
-    private static long getWorkId() {
+    private static long timeGen() {
+        return System.currentTimeMillis();
+    }
+
+    long tillNextMillis(long lastTimeStamp) {
+        long timestamp = timeGen();
+        while(timestamp <= lastTimeStamp) {
+            timestamp = timeGen();
+        }
+        return timestamp;
+    }
+
+    public synchronized long nextId() {
+        long timestamp = timeGen();
+
+        if(timestamp < lastTimeStamp) {
+            throw new RuntimeException(String.format("Clock moved backwards, refusing to generate id for %d milliseconds", lastTimeStamp - timestamp));
+        }
+
+        if(lastTimeStamp == timestamp) {
+            sequence = (sequence + 1) & sequenceMask;
+
+            if(sequence == 0) {
+                timestamp = tillNextMillis(lastTimeStamp);
+            }
+        } else {
+            sequence = 0L;
+        }
+
+        lastTimeStamp = timestamp;
+
+        return ((timestamp - beginEpoch) << timestampLeftShift) | (dataCenterId << dataCenterIdShift) | (workerId << workerIdShift) | sequence;
+    }
+
+//    private static int[] toCodePoints(String str) {
+//        int[] result = new int[str.length()];
+//        for(int i = 0; i < str.length(); i++) {
+//            result[i] = str.charAt(i);
+//        }
+//        return result;
+//    }
+
+    private static Long getWorkId() {
         try {
             String hostAddress = Inet4Address.getLocalHost().getHostAddress();
-            //TODO
+            int[] ints = StringUtils.toCodePoints(hostAddress);
+            int sums = 0;
+            for(int b: ints) {
+                sums += b;
+            }
+            return (long) sums % 32;
         } catch (UnknownHostException e) {
-            e.printStackTrace();
+            return RandomUtils.nextLong(0, 31);
         }
     }
 
-    private static long getDataCenterId() {
-        //TODO
+    private static Long getDataCenterId() {
+        int[] ints = StringUtils.toCodePoints(SystemUtils.getHostName());
+        int sums = 0;
+        for (int i: ints) {
+            sums += i;
+        }
+        return (long) (sums % 32);
     }
 
     static {
         idWorker = new IdWorkerUtils(getWorkId(), getDataCenterId());
+    }
+
+    public static long generateId() {
+        return idWorker.nextId();
     }
 }
